@@ -1,8 +1,8 @@
 "use client";
 
-import { db, type Sheet } from "@/lib/db";
+import type { CiviciDexie, Sheet } from "@/lib/db";
 
-export async function syncPendingLeads() {
+export async function syncPendingLeads(db: CiviciDexie) {
   const pending = await db.queue.where("status").equals("pending").toArray();
   let sentCount = 0;
 
@@ -61,7 +61,11 @@ function phoneKey(phone: string) {
   return digits || phone.trim().toLowerCase();
 }
 
-export async function exportLeadsToCsv(filename = "open-house-leads.csv", sheetId?: string) {
+export async function exportLeadsToCsv(
+  db: CiviciDexie,
+  filename = "open-house-leads.csv",
+  sheetId?: string,
+) {
   const allForTrends = await db.leads.orderBy("createdAt").toArray();
   const leads = sheetId
     ? await db.leads.where("sheetId").equals(sheetId).sortBy("createdAt")
@@ -118,7 +122,7 @@ export async function exportLeadsToCsv(filename = "open-house-leads.csv", sheetI
   URL.revokeObjectURL(url);
 }
 
-export async function downloadOfflineSheetBundle(sheet: Sheet) {
+export async function downloadOfflineSheetBundle(db: CiviciDexie, sheet: Sheet) {
   const leads = await db.leads.where("sheetId").equals(sheet.id).sortBy("createdAt");
   const pending = await db.queue.where("status").equals("pending").toArray();
   const pendingQueue = [];

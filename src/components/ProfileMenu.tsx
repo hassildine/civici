@@ -5,7 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useUser, UserButton } from "@clerk/nextjs";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db, ensureDatabaseReady } from "@/lib/db";
+import { ensureDatabaseReady } from "@/lib/db";
+import { useDb } from "@/components/DbProvider";
 import { DEFAULT_ACCENT_COLOR } from "@/lib/theme";
 
 type UserLike = {
@@ -73,6 +74,7 @@ function effectiveDisplayName(user: UserLike, localDisplayName: string): string 
 }
 
 export function ProfileMenu() {
+  const db = useDb();
   const [open, setOpen] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [saving, setSaving] = useState(false);
@@ -80,10 +82,10 @@ export function ProfileMenu() {
   const [saved, setSaved] = useState(false);
   const { user, isLoaded } = useUser();
   const pathname = usePathname();
-  const localProfile = useLiveQuery(async () => await db.localProfile.get("default"), []);
+  const localProfile = useLiveQuery(async () => await db.localProfile.get("default"), [db]);
   const recentSheet = useLiveQuery(
     async () => await db.sheets.orderBy("lastOpenedAt").reverse().first(),
-    [],
+    [db],
   );
 
   const localDisplayName = localProfile?.displayName ?? "";
@@ -96,8 +98,8 @@ export function ProfileMenu() {
   const brandingSheetId = sheetIdFromPath ?? recentSheet?.id ?? "";
 
   useEffect(() => {
-    void ensureDatabaseReady();
-  }, []);
+    void ensureDatabaseReady(db);
+  }, [db]);
 
   function openProfileMenu() {
     setError(null);
@@ -126,7 +128,7 @@ export function ProfileMenu() {
     }
     setSaving(true);
     try {
-      await ensureDatabaseReady();
+      await ensureDatabaseReady(db);
       await db.localProfile.put({
         id: "default",
         displayName: trimmed,

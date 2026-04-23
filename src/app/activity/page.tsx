@@ -2,20 +2,22 @@
 
 import { useEffect, useMemo } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db, ensureDatabaseReady } from "@/lib/db";
+import { ensureDatabaseReady } from "@/lib/db";
 import { AppSidebar } from "@/components/AppSidebar";
+import { useDb } from "@/components/DbProvider";
 import { ProfileMenu } from "@/components/ProfileMenu";
 import { CIVICI_APP_SHELL_CLASS, CIVICI_MAIN_COLUMN_CLASS } from "@/lib/theme";
 
 export default function ActivityPage() {
+  const db = useDb();
   const queue = useLiveQuery(
     async () => await db.queue.orderBy("updatedAt").reverse().toArray(),
-    [],
+    [db],
   );
-  const sheets = useLiveQuery(async () => await db.sheets.toArray(), []);
+  const sheets = useLiveQuery(async () => await db.sheets.toArray(), [db]);
   useEffect(() => {
-    void ensureDatabaseReady();
-  }, []);
+    void ensureDatabaseReady(db);
+  }, [db]);
 
   const sheetTitleById = useMemo(() => {
     const map = new Map<string, string>();

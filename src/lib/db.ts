@@ -120,15 +120,18 @@ function formConfigToSheet(id: string, fc: FormConfig, now: string): Sheet {
   };
 }
 
-class OpenHouseDB extends Dexie {
+/** Pre–per-user builds used this single IndexedDB name (migrate once, then delete). */
+const LEGACY_DB_NAME = "open-house-db";
+
+export class OpenHouseDB extends Dexie {
   leads!: EntityTable<Lead, "id">;
   queue!: EntityTable<OutboundQueueItem, "id">;
   formConfig!: EntityTable<FormConfig, "id">;
   sheets!: EntityTable<Sheet, "id">;
   localProfile!: EntityTable<LocalProfile, "id">;
 
-  constructor() {
-    super("open-house-db");
+  constructor(dbName: string) {
+    super(dbName);
     this.version(1).stores({
       leads: "id, createdAt, syncedAt, eventName",
       queue: "id, leadId, status, createdAt, updatedAt",
@@ -236,9 +239,80 @@ class OpenHouseDB extends Dexie {
   }
 }
 
-export const db = new OpenHouseDB();
+export type CiviciDexie = OpenHouseDB;
 
-export async function ensureDefaultConfig() {
+const dbCache = new Map<string, OpenHouseDB>();
+
+function dexieNameForClerkUser(userId: string): string {
+  const safe = userId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  return `civici-${safe}`;
+}
+
+export function getDbForUser(userId: string): OpenHouseDB {
+  const cached = dbCache.get(userId);
+  if (cached) return cached;
+  const db = new OpenHouseDB(dexieNameForClerkUser(userId));
+  dbCache.set(userId, db);
+  return db;
+}
+
+export function closeAndForgetDbForUser(userId: string): void {
+  const db = dbCache.get(userId);
+  if (!db) return;
+  db.close();
+  dbCache.delete(userId);
+}
+
+async function migrateLegacySharedDbIfNeeded(db: OpenHouseDB): Promise<void> {
+  if (await db.sheets.count() > 0) return;
+  const exists = await Dexie.exists(LEGACY_DB_NAME);
+  if (!exists) return;
+
+  const legacy = new OpenHouseDB(LEGACY_DB_NAME);
+  try {
+    await legacy.open();
+    const sheetCount = await legacy.sheets.count();
+    if (sheetCount === 0) return;
+
+    const sheets = await legacy.sheets.toArray();
+    const leads = await legacy.leads.toArray();
+    const queue = await legacy.queue.toArray();
+    const formRows = await legacy.formConfig.toArray();
+    let profiles: LocalProfile[] = [];
+    try {
+      profiles = await legacy.localProfile.toArray();
+    } catch {
+      profiles = [];
+    }
+
+    await db.transaction(
+      "rw",
+      [db.sheets, db.leads, db.queue, db.formConfig, db.localProfile],
+      async () => {
+        await db.sheets.bulkPut(sheets);
+        await db.leads.bulkPut(leads);
+        await db.queue.bulkPut(queue);
+        for (const row of formRows) {
+          await db.formConfig.put(row);
+        }
+        for (const row of profiles) {
+          await db.localProfile.put(row);
+        }
+      },
+    );
+
+    legacy.close();
+    await Dexie.delete(LEGACY_DB_NAME);
+  } catch {
+    try {
+      legacy.close();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+export async function ensureDefaultConfig(db: OpenHouseDB) {
   const exists = await db.formConfig.get("default");
   if (!exists) {
     await db.formConfig.put(defaultConfig);
@@ -247,8 +321,7 @@ export async function ensureDefaultConfig() {
 
 const LEGACY_ACCENT_HEX = "#2563eb";
 
-/** Writes new default accent over the old built-in blue (Dexie upgrade can miss edge cases). */
-async function patchLegacyDefaultAccentColors() {
+async function patchLegacyDefaultAccentColors(db: OpenHouseDB) {
   const now = new Date().toISOString();
   const sheets = await db.sheets.toArray();
   for (const s of sheets) {
@@ -268,7 +341,7 @@ const defaultLocalProfile: LocalProfile = {
   updatedAt: new Date().toISOString(),
 };
 
-async function ensureLocalProfile() {
+async function ensureLocalProfile(db: OpenHouseDB) {
   const row = await db.localProfile.get("default");
   if (!row) {
     await db.localProfile.put({ ...defaultLocalProfile, updatedAt: new Date().toISOString() });
@@ -276,10 +349,11 @@ async function ensureLocalProfile() {
 }
 
 /** Ensures legacy config + at least one sheet (migration v3). */
-export async function ensureDatabaseReady() {
-  await ensureDefaultConfig();
-  await patchLegacyDefaultAccentColors();
-  await ensureLocalProfile();
+export async function ensureDatabaseReady(db: OpenHouseDB) {
+  await migrateLegacySharedDbIfNeeded(db);
+  await ensureDefaultConfig(db);
+  await patchLegacyDefaultAccentColors(db);
+  await ensureLocalProfile(db);
   const count = await db.sheets.count();
   if (count === 0) {
     const fc = (await db.formConfig.get("default")) ?? defaultConfig;
@@ -297,13 +371,13 @@ export async function ensureDatabaseReady() {
   }
 }
 
-export async function touchSheetLastOpened(sheetId: string) {
+export async function touchSheetLastOpened(db: OpenHouseDB, sheetId: string) {
   const now = new Date().toISOString();
   await db.sheets.update(sheetId, { lastOpenedAt: now, updatedAt: now });
 }
 
-export async function createBlankSheet(): Promise<string> {
-  await ensureDatabaseReady();
+export async function createBlankSheet(db: OpenHouseDB): Promise<string> {
+  await ensureDatabaseReady(db);
   const template = await db.sheets.orderBy("lastOpenedAt").reverse().first();
   if (!template) {
     const fc = (await db.formConfig.get("default")) ?? defaultConfig;
@@ -329,8 +403,8 @@ export async function createBlankSheet(): Promise<string> {
 }
 
 /** Most recently opened sheet (for sidebar accent, redirects). */
-export async function getMostRecentSheetId(): Promise<string | undefined> {
-  await ensureDatabaseReady();
+export async function getMostRecentSheetId(db: OpenHouseDB): Promise<string | undefined> {
+  await ensureDatabaseReady(db);
   const s = await db.sheets.orderBy("lastOpenedAt").reverse().first();
   return s?.id;
 }

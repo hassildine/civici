@@ -2,21 +2,23 @@
 
 import { useEffect, useMemo } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db, ensureDatabaseReady } from "@/lib/db";
+import { ensureDatabaseReady } from "@/lib/db";
 import { exportLeadsToCsv } from "@/lib/sheetClient";
 import { AppSidebar } from "@/components/AppSidebar";
+import { useDb } from "@/components/DbProvider";
 import { ProfileMenu } from "@/components/ProfileMenu";
 import { CIVICI_APP_SHELL_CLASS, CIVICI_MAIN_COLUMN_CLASS } from "@/lib/theme";
 
 export default function ContactsPage() {
+  const db = useDb();
   const leads = useLiveQuery(
     async () => await db.leads.orderBy("createdAt").reverse().toArray(),
-    [],
+    [db],
   );
-  const sheets = useLiveQuery(async () => await db.sheets.toArray(), []);
+  const sheets = useLiveQuery(async () => await db.sheets.toArray(), [db]);
   useEffect(() => {
-    void ensureDatabaseReady();
-  }, []);
+    void ensureDatabaseReady(db);
+  }, [db]);
 
   const sheetTitleById = useMemo(() => {
     const map = new Map<string, string>();
@@ -39,7 +41,7 @@ export default function ContactsPage() {
             </p>
             <button
               type="button"
-              onClick={() => void exportLeadsToCsv()}
+              onClick={() => void exportLeadsToCsv(db)}
               className="mt-4 rounded-md bg-neutral-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-neutral-800"
             >
               Export all (CSV)

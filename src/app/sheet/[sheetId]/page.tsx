@@ -4,14 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
-import {
-  db,
-  ensureDatabaseReady,
-  touchSheetLastOpened,
-  createBlankSheet,
-} from "@/lib/db";
+import { ensureDatabaseReady, touchSheetLastOpened, createBlankSheet } from "@/lib/db";
 import { downloadOfflineSheetBundle, syncPendingLeads } from "@/lib/sheetClient";
 import { AppSidebar } from "@/components/AppSidebar";
+import { useDb } from "@/components/DbProvider";
 import { ProfileMenu } from "@/components/ProfileMenu";
 import {
   CIVICI_APP_SHELL_CLASS,
@@ -38,6 +34,7 @@ function createEmptyRow(): DraftRow {
 }
 
 export default function SheetByIdPage() {
+  const db = useDb();
   const params = useParams();
   const router = useRouter();
   const sheetId = typeof params.sheetId === "string" ? params.sheetId : "";
@@ -52,18 +49,18 @@ export default function SheetByIdPage() {
 
   const sheet = useLiveQuery(
     async () => (sheetId ? await db.sheets.get(sheetId) : undefined),
-    [sheetId],
+    [sheetId, db],
   );
   const leads = useLiveQuery(
     async () =>
       sheetId
         ? await db.leads.where("sheetId").equals(sheetId).sortBy("createdAt")
         : [],
-    [sheetId],
+    [sheetId, db],
   );
   const pending = useLiveQuery(
     async () => await db.queue.where("status").equals("pending").toArray(),
-    [],
+    [db],
   );
 
   const pendingForSheet = useMemo(() => {
@@ -73,13 +70,13 @@ export default function SheetByIdPage() {
   }, [sheetId, pending, leads]);
 
   useEffect(() => {
-    void ensureDatabaseReady();
-  }, []);
+    void ensureDatabaseReady(db);
+  }, [db]);
 
   useEffect(() => {
     if (!sheetId) return;
-    void touchSheetLastOpened(sheetId);
-  }, [sheetId]);
+    void touchSheetLastOpened(db, sheetId);
+  }, [sheetId, db]);
 
   useEffect(() => {
     const onOnline = () => setIsOnline(true);
@@ -134,7 +131,7 @@ export default function SheetByIdPage() {
     if (!sheet || isSyncing) return;
     setIsSyncing(true);
     try {
-      await syncPendingLeads();
+      await syncPendingLeads(db);
     } finally {
       setIsSyncing(false);
     }
@@ -144,7 +141,7 @@ export default function SheetByIdPage() {
     if (!isOnline || !sheet) return;
     void runSyncFlow();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOnline, sheet?.id, sheet?.offlineSheetDownloaded]);
+  }, [isOnline, sheet?.id, sheet?.offlineSheetDownloaded, db]);
 
   async function updateColumnHeader(
     key: "name" | "email" | "phone" | "notes",
@@ -169,7 +166,7 @@ export default function SheetByIdPage() {
   }
 
   async function handleNewDocument() {
-    const id = await createBlankSheet();
+    const id = await createBlankSheet(db);
     void router.push(`/sheet/${id}`);
   }
 
@@ -179,11 +176,11 @@ export default function SheetByIdPage() {
 
   useEffect(() => {
     if (!sheetId) return;
-    void ensureDatabaseReady().then(async () => {
+    void ensureDatabaseReady(db).then(async () => {
       const exists = await db.sheets.get(sheetId);
       if (!exists) router.replace("/sheet");
     });
-  }, [sheetId, router]);
+  }, [sheetId, router, db]);
 
   if (!sheetId) {
     return <main className="p-8">Loading…</main>;
@@ -361,7 +358,7 @@ export default function SheetByIdPage() {
                 className="rounded-md bg-neutral-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-neutral-800"
                 onClick={async () => {
                   await saveRows();
-                  await downloadOfflineSheetBundle(sheet);
+                  await downloadOfflineSheetBundle(db, sheet);
                   await db.sheets.update(sheet.id, {
                     offlineSheetDownloaded: true,
                     updatedAt: new Date().toISOString(),

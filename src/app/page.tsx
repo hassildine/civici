@@ -4,8 +4,9 @@ import Link from "next/link";
 import Image from "next/image";
 import { useEffect } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db, ensureDatabaseReady, createBlankSheet } from "@/lib/db";
+import { ensureDatabaseReady, createBlankSheet } from "@/lib/db";
 import { AppSidebar } from "@/components/AppSidebar";
+import { useDb } from "@/components/DbProvider";
 import { ProfileMenu } from "@/components/ProfileMenu";
 import {
   CIVICI_APP_SHELL_CLASS,
@@ -16,21 +17,22 @@ import {
 import { useRouter } from "next/navigation";
 
 export default function HomePage() {
+  const db = useDb();
   const router = useRouter();
   const recentSheets = useLiveQuery(
     async () => await db.sheets.orderBy("lastOpenedAt").reverse().limit(12).toArray(),
-    [],
+    [db],
   );
-  const sheetCount = useLiveQuery(async () => await db.sheets.count(), []);
-  const leads = useLiveQuery(async () => await db.leads.toArray(), []);
+  const sheetCount = useLiveQuery(async () => await db.sheets.count(), [db]);
+  const leads = useLiveQuery(async () => await db.leads.toArray(), [db]);
   const sent = useLiveQuery(
     async () => await db.queue.where("status").equals("sent").toArray(),
-    [],
+    [db],
   );
 
   useEffect(() => {
-    void ensureDatabaseReady();
-  }, []);
+    void ensureDatabaseReady(db);
+  }, [db]);
 
   const guestSignIns = leads?.length ?? 0;
   const totalContacts = leads?.length ?? 0;
@@ -38,7 +40,7 @@ export default function HomePage() {
   const sheetsTotal = sheetCount ?? 0;
 
   async function handleNewSheet() {
-    const id = await createBlankSheet();
+    const id = await createBlankSheet(db);
     void router.push(`/sheet/${id}`);
   }
 

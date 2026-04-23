@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useParams, useRouter } from "next/navigation";
-import { db, ensureDatabaseReady } from "@/lib/db";
+import { ensureDatabaseReady } from "@/lib/db";
 import { AppSidebar } from "@/components/AppSidebar";
+import { useDb } from "@/components/DbProvider";
 import { ProfileMenu } from "@/components/ProfileMenu";
 import {
   CIVICI_APP_SHELL_CLASS,
@@ -16,6 +17,7 @@ const THANK_YOU_HINT =
   "Use {firstName}, {fullName}, and {eventName}. Example: Thanks {firstName} for visiting {eventName}!";
 
 export default function SheetSettingsPage() {
+  const db = useDb();
   const params = useParams();
   const router = useRouter();
   const sheetId = typeof params.sheetId === "string" ? params.sheetId : "";
@@ -24,20 +26,20 @@ export default function SheetSettingsPage() {
 
   const sheet = useLiveQuery(
     async () => (sheetId ? await db.sheets.get(sheetId) : undefined),
-    [sheetId],
+    [sheetId, db],
   );
 
   useEffect(() => {
-    void ensureDatabaseReady();
-  }, []);
+    void ensureDatabaseReady(db);
+  }, [db]);
 
   useEffect(() => {
     if (!sheetId) return;
-    void ensureDatabaseReady().then(async () => {
+    void ensureDatabaseReady(db).then(async () => {
       const exists = await db.sheets.get(sheetId);
       if (!exists) router.replace("/settings");
     });
-  }, [sheetId, router]);
+  }, [sheetId, router, db]);
 
   async function updateSheet(partial: Record<string, unknown>) {
     if (!sheet) return;

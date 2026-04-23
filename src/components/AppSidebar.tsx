@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "@/lib/db";
+import { useDb } from "@/components/DbProvider";
 import { DEFAULT_ACCENT_COLOR } from "@/lib/theme";
 
 const CIVICI_LOGO = "/civici-logo.png";
@@ -18,10 +18,11 @@ const navItems = [
 ];
 
 export function AppSidebar() {
+  const db = useDb();
   const pathname = usePathname();
   const recentSheet = useLiveQuery(
     async () => await db.sheets.orderBy("lastOpenedAt").reverse().first(),
-    [],
+    [db],
   );
 
   const isActive = (href: string) => {
