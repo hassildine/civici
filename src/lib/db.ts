@@ -1,5 +1,10 @@
 "use client";
 
+/**
+ * Agent data is **account-scoped**: each Clerk `userId` gets its own IndexedDB (`civici-{userId}`).
+ * The UI reads/writes through `useDb()` (see `DbProvider`) so offline use still targets **that** account’s
+ * sheets/leads, like a phone app — not a shared anonymous store.
+ */
 import Dexie, { type EntityTable } from "dexie";
 import { DEFAULT_ACCENT_COLOR, resolveSheetAccentColor } from "@/lib/theme";
 
